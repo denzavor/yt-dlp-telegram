@@ -165,6 +165,7 @@ This project includes:
 
 - `Dockerfile` (Python + ffmpeg + app)
 - `docker-compose.yml` (single `bot` service)
+- persistent app data in `./data` (for the encrypted cookies database)
 
 ### 1) Prepare config
 
@@ -192,7 +193,18 @@ This will:
 - build the image
 - mount your local `config.py` into container as read-only:
   - `./config.py:/app/config.py:ro`
+- mount `./data` into the container so stored cookies survive rebuilds:
+  - `./data:/data`
 - start bot with restart policy `unless-stopped`
+
+If you are upgrading an existing Docker deployment that already has cookies stored in
+the running container, copy the database out once before rebuilding:
+
+```bash
+mkdir -p data
+docker cp yt-dlp-telegram-bot-1:/app/db.db ./data/db.db
+docker compose up -d --build
+```
 
 ---
 
@@ -274,6 +286,7 @@ js_runtime: dict[str, dict[str, str] | None] | None = {"node": {"path": "node"}}
 js_runtime: dict[str, dict[str, str] | None] | None = {"bun": {"path": "bun"}}
 ```
 Cookies are stored in `db.db` (using Sqlite3) and encrypted with a `secret_key` that can be set in the config file.
+When running with Docker, that database lives in `./data/db.db` so it is not lost on rebuild.
 
 ### Where can I find cookies.txt
 You need to export it from your browser using an extension like [this one](https://github.com/kairi003/Get-cookies.txt-LOCALLY?tab=readme-ov-file#from-webstore)

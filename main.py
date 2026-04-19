@@ -24,7 +24,9 @@ key = hashlib.sha256(config.secret_key.encode()).digest()
 cipher = Fernet(base64.urlsafe_b64encode(key))
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-db_path = os.path.join(script_dir, "db.db")
+data_dir = os.getenv("APP_DATA_DIR", script_dir)
+os.makedirs(data_dir, exist_ok=True)
+db_path = os.path.join(data_dir, "db.db")
 db_conn = sqlite3.connect(db_path, check_same_thread=False)
 db_cursor = db_conn.cursor()
 db_cursor.execute("""

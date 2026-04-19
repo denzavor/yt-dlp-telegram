@@ -5,3 +5,4 @@ test.json
 venv
 .DS_Store
 db.db
+data/
