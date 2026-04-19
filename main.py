@@ -249,7 +249,9 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         err = str(e).lower()
         text: str
 
-        if "[youtube]" in err and "sign in" in err:
+        if "[instagram]" in err and "there is no video in this post" in err:
+            text = "This Instagram post appears to be photo-only, and yt-dlp cannot download that post type right now."
+        elif "[youtube]" in err and "sign in" in err:
             text = "We're sorry, YouTube is ratelimiting third party downloaders right now, try again later."
         elif "login required" in err or "rate-limit reached" in err:
             text = "Content not available (Rate limit or login required)."

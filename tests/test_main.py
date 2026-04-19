@@ -15,7 +15,7 @@ INSTAGRAM_PHOTO_URL = (
 )
 
 
-def load_main_module(media_extension=".mp4"):
+def load_main_module(media_extension=".mp4", raised_error=None):
     temp_root = pathlib.Path(tempfile.mkdtemp(prefix="yt-dlp-telegram-tests-"))
     output_dir = temp_root / "output"
     data_dir = temp_root / "data"
@@ -202,6 +202,9 @@ def load_main_module(media_extension=".mp4"):
             FakeYoutubeDL.last_download = download
             FakeYoutubeDL.last_opts = self.opts
 
+            if raised_error is not None:
+                raise DownloadError(raised_error)
+
             output_template = self.opts["outtmpl"]
             filepath = output_template.replace("%(ext)s", media_extension.lstrip("."))
             pathlib.Path(filepath).parent.mkdir(parents=True, exist_ok=True)
@@ -280,6 +283,28 @@ class MainTests(unittest.TestCase):
 
         self.assertTrue(module.db_path.endswith("/data/db.db"))
         self.assertTrue(pathlib.Path(module.db_path).exists())
+
+    def test_instagram_photo_only_error_gets_specific_message(self):
+        module, _fake_ydl = load_main_module(
+            media_extension=".jpg",
+            raised_error="ERROR: [Instagram] DXShON4gKIZ: There is no video in this post",
+        )
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="alice"),
+            text=INSTAGRAM_PHOTO_URL,
+        )
+
+        module.download_video(message, INSTAGRAM_PHOTO_URL)
+
+        edited_args, edited_kwargs = module.bot.edited[-1]
+        self.assertEqual(
+            edited_args[0],
+            "This Instagram post appears to be photo-only, and yt-dlp cannot download that post type right now.",
+        )
+        self.assertEqual(edited_args[1], 123)
+        self.assertEqual(edited_args[2], 99)
 
 
 if __name__ == "__main__":
