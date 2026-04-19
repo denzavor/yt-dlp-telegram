@@ -40,6 +40,9 @@ allowed_usernames: list[str] = []
 # optional shared cookie file for all allowed users, useful for Instagram auth
 shared_cookie_file: str | None = None
 
+# optional gallery-dl binary path for Instagram image fallback
+gallery_dl_binary: str = "gallery-dl"
+
 # this is used to solve youtube challenges, you can set it to None if you don't
 # need it or change the runtime like {"node": {"path": "node"}}
 js_runtime: dict[str, dict[str, str] | None] | None = {"bun": {"path": "bun"}}

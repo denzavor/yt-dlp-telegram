@@ -302,6 +302,123 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(fake_ydl.last_opts["cookiefile"], str(shared_cookie))
 
+    def test_instagram_photo_error_falls_back_to_gallery_dl(self):
+        module, _fake_ydl = load_main_module(
+            media_extension=".mp4",
+            raised_error="ERROR: [Instagram] DXShON4gKIZ: No video formats found!",
+        )
+
+        def fake_run(command, capture_output, text, check, timeout):
+            download_dir = pathlib.Path(command[command.index("-D") + 1])
+            download_dir.mkdir(parents=True, exist_ok=True)
+            (download_dir / "photo.jpg").write_bytes(b"image-bytes")
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        module.subprocess.run = fake_run
+
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text=INSTAGRAM_PHOTO_URL,
+        )
+
+        module.download_video(message, INSTAGRAM_PHOTO_URL)
+
+        self.assertEqual(len(module.bot.sent_photo), 1)
+        self.assertEqual(
+            module.bot.edited[-1][1]["text"], "Отправляю файл в Telegram..."
+        )
+
+    def test_instagram_gallery_fallback_tries_public_then_shared_cookies(self):
+        shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
+        shared_cookie.write_text("cookie-data", encoding="utf-8")
+        module, _fake_ydl = load_main_module(
+            media_extension=".mp4",
+            raised_error="ERROR: [Instagram] DXShON4gKIZ: No video formats found!",
+            config_overrides={"shared_cookie_file": str(shared_cookie)},
+        )
+        calls = []
+
+        def fake_run(command, capture_output, text, check, timeout):
+            calls.append(command)
+            download_dir = pathlib.Path(command[command.index("-D") + 1])
+            download_dir.mkdir(parents=True, exist_ok=True)
+            if "-C" in command:
+                (download_dir / "photo.jpg").write_bytes(b"image-bytes")
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        module.subprocess.run = fake_run
+
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text=INSTAGRAM_PHOTO_URL,
+        )
+
+        module.download_video(message, INSTAGRAM_PHOTO_URL)
+
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn("-C", calls[0])
+        self.assertIn("-C", calls[1])
+        self.assertEqual(calls[1][calls[1].index("-C") + 1], str(shared_cookie))
+
+    def test_instagram_photo_error_without_gallery_dl_keeps_russian_message(self):
+        module, _fake_ydl = load_main_module(
+            media_extension=".jpg",
+            raised_error="ERROR: [Instagram] DXShON4gKIZ: No video formats found!",
+        )
+        module.subprocess.run = lambda *args, **kwargs: (_ for _ in ()).throw(
+            FileNotFoundError("gallery-dl")
+        )
+
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text=INSTAGRAM_PHOTO_URL,
+        )
+
+        module.download_video(message, INSTAGRAM_PHOTO_URL)
+
+        edited_args, edited_kwargs = module.bot.edited[-1]
+        self.assertEqual(edited_args, ())
+        self.assertEqual(
+            edited_kwargs["text"],
+            "Похоже, это пост только с фото. Сейчас yt-dlp не умеет скачивать такой тип Instagram-поста.",
+        )
+
+    def test_shared_cookie_command_updates_bot_cookie_file(self):
+        shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
+        module, _fake_ydl = load_main_module(
+            media_extension=".mp4",
+            config_overrides={"shared_cookie_file": str(shared_cookie)},
+        )
+        cookie_payload = (
+            "# Netscape HTTP Cookie File\n"
+            ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc\n"
+        ).encode("utf-8")
+        module.bot.download_file = lambda _path: cookie_payload
+
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text="/sharedcookies",
+            caption=None,
+            document=types.SimpleNamespace(file_id="file-1"),
+        )
+
+        module.handle_shared_cookie(message)
+
+        self.assertTrue(shared_cookie.exists())
+        self.assertIn("sessionid", shared_cookie.read_text(encoding="utf-8"))
+        self.assertEqual(
+            module.bot.replies[-1][1],
+            "Общие cookies успешно обновлены. Бот начнет использовать их для новых запросов.",
+        )
+
     def test_app_data_dir_is_used_for_sqlite_db(self):
         module, _fake_ydl = load_main_module(media_extension=".mp4")
 
@@ -331,6 +448,9 @@ class MainTests(unittest.TestCase):
             media_extension=".jpg",
             raised_error="ERROR: [Instagram] DXShON4gKIZ: There is no video in this post",
         )
+        module.subprocess.run = lambda *args, **kwargs: types.SimpleNamespace(
+            returncode=1, stdout="", stderr=""
+        )
         message = types.SimpleNamespace(
             chat=types.SimpleNamespace(id=123, type="private"),
             message_id=7,
@@ -341,14 +461,39 @@ class MainTests(unittest.TestCase):
         module.download_video(message, INSTAGRAM_PHOTO_URL)
 
         edited_args, edited_kwargs = module.bot.edited[-1]
+        self.assertEqual(edited_args, ())
         self.assertEqual(
-            edited_args[0],
+            edited_kwargs["text"],
             "Похоже, это пост только с фото. Сейчас yt-dlp не умеет скачивать такой тип Instagram-поста.",
         )
-        self.assertEqual(edited_args[1], 123)
-        self.assertEqual(edited_args[2], 99)
+        self.assertEqual(edited_kwargs["chat_id"], 123)
+        self.assertEqual(edited_kwargs["message_id"], 99)
 
     def test_instagram_no_video_formats_error_gets_photo_message(self):
+        module, _fake_ydl = load_main_module(
+            media_extension=".jpg",
+            raised_error="ERROR: [Instagram] DXShON4gKIZ: No video formats found!",
+        )
+        module.subprocess.run = lambda *args, **kwargs: types.SimpleNamespace(
+            returncode=1, stdout="", stderr=""
+        )
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text=INSTAGRAM_PHOTO_URL,
+        )
+
+        module.download_video(message, INSTAGRAM_PHOTO_URL)
+
+        edited_args, edited_kwargs = module.bot.edited[-1]
+        self.assertEqual(edited_args, ())
+        self.assertEqual(
+            edited_kwargs["text"],
+            "Похоже, это пост только с фото. Сейчас yt-dlp не умеет скачивать такой тип Instagram-поста.",
+        )
+
+    def test_instagram_photo_post_audio_request_gets_russian_message(self):
         module, _fake_ydl = load_main_module(
             media_extension=".jpg",
             raised_error="ERROR: [Instagram] DXShON4gKIZ: No video formats found!",
@@ -360,12 +505,13 @@ class MainTests(unittest.TestCase):
             text=INSTAGRAM_PHOTO_URL,
         )
 
-        module.download_video(message, INSTAGRAM_PHOTO_URL)
+        module.download_video(message, INSTAGRAM_PHOTO_URL, audio=True)
 
-        edited_args, _edited_kwargs = module.bot.edited[-1]
+        edited_args, edited_kwargs = module.bot.edited[-1]
+        self.assertEqual(edited_args, ())
         self.assertEqual(
-            edited_args[0],
-            "Похоже, это пост только с фото. Сейчас yt-dlp не умеет скачивать такой тип Instagram-поста.",
+            edited_kwargs["text"],
+            "Это Instagram-пост с картинками, из него нельзя извлечь аудио.",
         )
 
     def test_instagram_empty_media_error_gets_russian_message(self):
@@ -385,9 +531,10 @@ class MainTests(unittest.TestCase):
 
         module.download_video(message, INSTAGRAM_REEL_URL)
 
-        edited_args, _edited_kwargs = module.bot.edited[-1]
+        edited_args, edited_kwargs = module.bot.edited[-1]
+        self.assertEqual(edited_args, ())
         self.assertEqual(
-            edited_args[0],
+            edited_kwargs["text"],
             "Instagram не отдал медиа. Обычно это значит, что нужен вход или текущие cookies больше не подходят.",
         )
 

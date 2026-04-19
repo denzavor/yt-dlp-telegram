@@ -158,6 +158,9 @@ allowed_usernames: list[str] = []
 # optional shared cookie file for all allowed users, useful for Instagram auth
 shared_cookie_file: str | None = None
 
+# optional gallery-dl binary path for Instagram image fallback
+gallery_dl_binary: str = "gallery-dl"
+
 # this is used to solve youtube challenges, you can set it to None if you don't
 # need it or change the runtime like {"bun": {"path": "bun"}}
 js_runtime: dict[str, dict[str, str] | None] | None = {"node": {"path": "node"}}
@@ -295,11 +298,19 @@ Cookies are stored in `db.db` (using Sqlite3) and encrypted with a `secret_key` 
 When running with Docker, that database lives in `./data/db.db` so it is not lost on rebuild.
 If you want one shared login for a private bot, put the exported cookies file in `./data`
 and point `shared_cookie_file` to `/data/<filename>`.
+For Instagram image posts, the bot can use `gallery-dl` as a fallback downloader. It
+first tries without cookies for public image posts, and only then falls back to the
+configured shared cookies if needed.
 
 ## Private Bot Mode
 
 Set `allowed_usernames` in `config.py` to restrict access to a fixed set of Telegram
 usernames. If the list is empty, the bot stays public.
+
+## Shared Cookies Update
+
+Allowed users can update the shared bot cookies directly in Telegram by sending a file
+with `/sharedcookies`. This avoids having to replace the server file manually.
 
 ### Where can I find cookies.txt
 You need to export it from your browser using an extension like [this one](https://github.com/kairi003/Get-cookies.txt-LOCALLY?tab=readme-ov-file#from-webstore)

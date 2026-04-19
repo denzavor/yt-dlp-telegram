@@ -3,7 +3,10 @@ import datetime
 import hashlib
 import os
 import re
+import shutil
 import sqlite3
+import subprocess
+import tempfile
 import time
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse
@@ -45,6 +48,13 @@ allowed_usernames = {
     for username in getattr(config, "allowed_usernames", [])
 }
 shared_cookie_file = getattr(config, "shared_cookie_file", None)
+gallery_dl_binary = getattr(config, "gallery_dl_binary", "gallery-dl")
+image_extensions = {".jpg", ".jpeg", ".png", ".webp"}
+instagram_browser_user_agent = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/136.0.0.0 Safari/537.36"
+)
 
 
 def encrypt_cookie(cookie_data: str) -> str:
@@ -89,6 +99,103 @@ def resolve_shared_cookie_file() -> Optional[str]:
     if shared_cookie_file and os.path.exists(shared_cookie_file):
         return shared_cookie_file
     return None
+
+
+def is_instagram_url(url: str) -> bool:
+    try:
+        domain = urlparse(url).netloc.lower()
+    except ValueError:
+        return False
+
+    if ":" in domain:
+        domain = domain.split(":")[0]
+
+    return domain in {"instagram.com", "www.instagram.com"}
+
+
+def send_photos(message, filepaths: list[str]) -> None:
+    for filepath in filepaths:
+        with open(filepath, "rb") as f:
+            bot.send_photo(message.chat.id, f, reply_to_message_id=message.message_id)
+
+
+def collect_downloaded_images(directory: str) -> list[str]:
+    image_paths = []
+
+    for root, _, files in os.walk(directory):
+        for filename in files:
+            extension = os.path.splitext(filename)[1].lower()
+            if extension in image_extensions:
+                image_paths.append(os.path.join(root, filename))
+
+    return sorted(image_paths)
+
+
+def run_gallery_dl_instagram(url: str, download_dir: str, cookie_path: Optional[str]) -> None:
+    command = [
+        gallery_dl_binary,
+        "--quiet",
+        "--no-part",
+        "-D",
+        download_dir,
+        "-a",
+        instagram_browser_user_agent,
+        "-o",
+        "extractor.instagram.videos=false",
+    ]
+
+    if cookie_path:
+        command.extend(["-C", cookie_path])
+
+    command.append(url)
+
+    subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=90,
+    )
+
+
+def try_instagram_gallery_fallback(
+    message,
+    msg,
+    url: str,
+    cookie_candidates: list[Optional[str]],
+) -> bool:
+    temp_dir = tempfile.mkdtemp(prefix="instagram-gallery-", dir=config.output_folder)
+
+    try:
+        for index, cookie_path in enumerate(cookie_candidates):
+            attempt_dir = os.path.join(temp_dir, f"attempt_{index}")
+            os.makedirs(attempt_dir, exist_ok=True)
+
+            try:
+                run_gallery_dl_instagram(url, attempt_dir, cookie_path)
+            except OSError:
+                return False
+
+            image_paths = collect_downloaded_images(attempt_dir)
+
+            if image_paths:
+                bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=msg.message_id,
+                    text="Отправляю файл в Telegram...",
+                )
+                send_photos(message, image_paths)
+                bot.delete_message(message.chat.id, msg.message_id)
+                return True
+
+        return False
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def is_shared_cookie_command(message) -> bool:
+    text = getattr(message, "text", None) or getattr(message, "caption", None) or ""
+    return text.startswith("/sharedcookie") or text.startswith("/sharedcookies")
 
 
 def youtube_url_validation(url):
@@ -192,7 +299,7 @@ def _send_media(message, info: Any, audio: bool) -> None:
     downloads = info.get("requested_downloads") or []
     filepath = downloads[0]["filepath"]
     extension = os.path.splitext(filepath)[1].lower()
-    is_image = extension in {".jpg", ".jpeg", ".png", ".webp"}
+    is_image = extension in image_extensions
 
     with open(filepath, "rb") as f:
         if audio:
@@ -261,6 +368,7 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         ydl_opts["remote_components"] = {"ejs:github"}
 
     cookie_file = None
+    cookie_candidates = [None]
     try:
         user_id = message.from_user.id
         db_cursor.execute(
@@ -279,6 +387,11 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
             if shared_cookie_path:
                 ydl_opts["cookiefile"] = shared_cookie_path
 
+        shared_cookie_path = resolve_shared_cookie_file()
+        for candidate in (cookie_file, shared_cookie_path):
+            if candidate and candidate not in cookie_candidates:
+                cookie_candidates.append(candidate)
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
 
@@ -295,7 +408,23 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         err = str(e).lower()
         text: str
 
-        if "[instagram]" in err and (
+        if (
+            not audio
+            and is_instagram_url(url)
+            and "[instagram]" in err
+            and (
+                "there is no video in this post" in err
+                or "no video formats found" in err
+            )
+            and try_instagram_gallery_fallback(message, msg, url, cookie_candidates)
+        ):
+            return
+        if "[instagram]" in err and audio and (
+            "there is no video in this post" in err
+            or "no video formats found" in err
+        ):
+            text = "Это Instagram-пост с картинками, из него нельзя извлечь аудио."
+        elif "[instagram]" in err and (
             "there is no video in this post" in err
             or "no video formats found" in err
         ):
@@ -309,14 +438,20 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         else:
             text = "Не удалось скачать файл. Попробуйте еще раз позже."
 
-        bot.edit_message_text(text, message.chat.id, msg.message_id)
+        bot.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=msg.message_id,
+            text=text,
+        )
 
     except Exception:
         bot.edit_message_text(
-            f"Не удалось отправить файл. Убедитесь, что он не больше "
-            f"*{round(config.max_filesize / 1_000_000)}MB* и поддерживается Telegram.",
-            message.chat.id,
-            msg.message_id,
+            chat_id=message.chat.id,
+            message_id=msg.message_id,
+            text=(
+                f"Не удалось отправить файл. Убедитесь, что он не больше "
+                f"*{round(config.max_filesize / 1_000_000)}MB* и поддерживается Telegram."
+            ),
             parse_mode="MARKDOWN",
         )
 
@@ -447,8 +582,55 @@ def get_chat_id(message):
 
 
 def is_cookie_command(message):
-    text = message.text or message.caption or ""
+    text = getattr(message, "text", None) or getattr(message, "caption", None) or ""
     return text.startswith("/cookie") or text.startswith("/cookies")
+
+
+@bot.message_handler(func=is_shared_cookie_command, content_types=["document", "text"])
+def handle_shared_cookie(message):
+    if not ensure_message_access(message):
+        return
+
+    shared_cookie_path = resolve_shared_cookie_file() or shared_cookie_file
+    if not shared_cookie_path:
+        bot.reply_to(
+            message,
+            "Общие cookies не настроены в config.py.",
+        )
+        return
+
+    document = getattr(message, "document", None)
+
+    if not document:
+        if os.path.exists(shared_cookie_path):
+            bot.reply_to(
+                message,
+                "Общие cookies уже настроены. Отправьте новый файл с этой командой, чтобы обновить их.",
+            )
+        else:
+            bot.reply_to(
+                message,
+                "Общие cookies пока не загружены. Отправьте файл с этой командой.",
+            )
+        return
+
+    file_info = bot.get_file(document.file_id)
+    if not file_info.file_path:
+        bot.reply_to(message, "Не удалось получить информацию о файле.")
+        return
+
+    downloaded_file = bot.download_file(file_info.file_path)
+    cookie_data = downloaded_file.decode("utf-8")
+    filtered_cookie_data = filter_cookies_by_domain(cookie_data)
+
+    os.makedirs(os.path.dirname(shared_cookie_path), exist_ok=True)
+    with open(shared_cookie_path, "w") as f:
+        f.write(filtered_cookie_data)
+
+    bot.reply_to(
+        message,
+        "Общие cookies успешно обновлены. Бот начнет использовать их для новых запросов.",
+    )
 
 
 @bot.message_handler(func=is_cookie_command, content_types=["document", "text"])
@@ -458,7 +640,9 @@ def handle_cookie(message):
 
     user_id = message.from_user.id
 
-    if not message.document:
+    document = getattr(message, "document", None)
+
+    if not document:
         db_cursor.execute(
             "SELECT cookie_data FROM user_cookies WHERE user_id = ?", (user_id,)
         )
@@ -501,7 +685,7 @@ def handle_cookie(message):
                 )
         return
 
-    file_info = bot.get_file(message.document.file_id)
+    file_info = bot.get_file(document.file_id)
     if not file_info.file_path:
         bot.reply_to(message, "Не удалось получить информацию о файле.")
         return
