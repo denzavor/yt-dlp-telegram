@@ -152,6 +152,12 @@ allowed_domains: list[str] = [
 # secret key used to encrypt/decrypt stores cookies
 secret_key: str = "your-secret-key"
 
+# optional allowlist for a private bot; leave empty to allow everyone
+allowed_usernames: list[str] = []
+
+# optional shared cookie file for all allowed users, useful for Instagram auth
+shared_cookie_file: str | None = None
+
 # this is used to solve youtube challenges, you can set it to None if you don't
 # need it or change the runtime like {"bun": {"path": "bun"}}
 js_runtime: dict[str, dict[str, str] | None] | None = {"node": {"path": "node"}}
@@ -287,6 +293,13 @@ js_runtime: dict[str, dict[str, str] | None] | None = {"bun": {"path": "bun"}}
 ```
 Cookies are stored in `db.db` (using Sqlite3) and encrypted with a `secret_key` that can be set in the config file.
 When running with Docker, that database lives in `./data/db.db` so it is not lost on rebuild.
+If you want one shared login for a private bot, put the exported cookies file in `./data`
+and point `shared_cookie_file` to `/data/<filename>`.
+
+## Private Bot Mode
+
+Set `allowed_usernames` in `config.py` to restrict access to a fixed set of Telegram
+usernames. If the list is empty, the bot stays public.
 
 ### Where can I find cookies.txt
 You need to export it from your browser using an extension like [this one](https://github.com/kairi003/Get-cookies.txt-LOCALLY?tab=readme-ov-file#from-webstore)

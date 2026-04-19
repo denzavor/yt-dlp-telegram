@@ -5,7 +5,7 @@ import os
 import re
 import sqlite3
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 import requests
@@ -40,6 +40,11 @@ db_conn.commit()
 ses = requests.Session()
 bot = telebot.TeleBot(config.token)
 last_edited = {}
+allowed_usernames = {
+    username.lstrip("@").lower()
+    for username in getattr(config, "allowed_usernames", [])
+}
+shared_cookie_file = getattr(config, "shared_cookie_file", None)
 
 
 def encrypt_cookie(cookie_data: str) -> str:
@@ -50,6 +55,40 @@ def encrypt_cookie(cookie_data: str) -> str:
 def decrypt_cookie(encrypted_data: str) -> str:
     """Decrypt cookie data using the secret key."""
     return cipher.decrypt(encrypted_data.encode()).decode()
+
+
+def normalize_username(username: Optional[str]) -> Optional[str]:
+    if not username:
+        return None
+    return username.lstrip("@").lower()
+
+
+def is_user_allowed(user: Any) -> bool:
+    if not allowed_usernames:
+        return True
+    return normalize_username(getattr(user, "username", None)) in allowed_usernames
+
+
+def ensure_message_access(message) -> bool:
+    if is_user_allowed(message.from_user):
+        return True
+
+    bot.reply_to(message, "This bot is private.")
+    return False
+
+
+def ensure_callback_access(call) -> bool:
+    if is_user_allowed(call.from_user):
+        return True
+
+    bot.answer_callback_query(call.id, "This bot is private.")
+    return False
+
+
+def resolve_shared_cookie_file() -> Optional[str]:
+    if shared_cookie_file and os.path.exists(shared_cookie_file):
+        return shared_cookie_file
+    return None
 
 
 def youtube_url_validation(url):
@@ -86,6 +125,9 @@ def is_allowed_domain(url):
 
 @bot.message_handler(commands=["start", "help"])
 def test(message):
+    if not ensure_message_access(message):
+        return
+
     bot.reply_to(
         message,
         "*Send me a video link* and I'll download it for you, works with *YouTube*, *TikTok*, *Instagram*, *Twitter* and *Bluesky*.\n\n_Powered by_ [yt-dlp](https://github.com/yt-dlp/yt-dlp/)",
@@ -232,6 +274,10 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
             with open(cookie_file, "w") as f:
                 f.write(decrypted_data)
             ydl_opts["cookiefile"] = cookie_file
+        else:
+            shared_cookie_path = resolve_shared_cookie_file()
+            if shared_cookie_path:
+                ydl_opts["cookiefile"] = shared_cookie_path
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -300,6 +346,9 @@ def get_text(message):
 
 @bot.message_handler(commands=["download"])
 def download_command(message):
+    if not ensure_message_access(message):
+        return
+
     text = get_text(message)
     if not text:
         bot.reply_to(
@@ -313,6 +362,9 @@ def download_command(message):
 
 @bot.message_handler(commands=["audio"])
 def download_audio_command(message):
+    if not ensure_message_access(message):
+        return
+
     text = get_text(message)
     if not text:
         bot.reply_to(message, "Invalid usage, use `/audio url`", parse_mode="MARKDOWN")
@@ -324,6 +376,9 @@ def download_audio_command(message):
 
 @bot.message_handler(commands=["custom"])
 def custom(message):
+    if not ensure_message_access(message):
+        return
+
     text = message.text if message.text else message.caption
 
     check = check_url(text, message)
@@ -380,6 +435,9 @@ def filter_cookies_by_domain(cookie_data: str) -> str:
 
 @bot.message_handler(commands=["id"])
 def get_chat_id(message):
+    if not ensure_message_access(message):
+        return
+
     bot.reply_to(message, message.chat.id)
 
 
@@ -390,6 +448,9 @@ def is_cookie_command(message):
 
 @bot.message_handler(func=is_cookie_command, content_types=["document", "text"])
 def handle_cookie(message):
+    if not ensure_message_access(message):
+        return
+
     user_id = message.from_user.id
 
     if not message.document:
@@ -423,10 +484,16 @@ def handle_cookie(message):
                 if os.path.exists(cookie_file):
                     os.remove(cookie_file)
         else:
-            bot.reply_to(
-                message,
-                "No cookies stored. Send a file with this command to store cookies.",
-            )
+            if resolve_shared_cookie_file():
+                bot.reply_to(
+                    message,
+                    "No personal cookies stored. Shared bot cookies are configured.",
+                )
+            else:
+                bot.reply_to(
+                    message,
+                    "No cookies stored. Send a file with this command to store cookies.",
+                )
         return
 
     file_info = bot.get_file(message.document.file_id)
@@ -451,6 +518,9 @@ def handle_cookie(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
+    if not ensure_callback_access(call):
+        return
+
     if call.data == "delete_cookies":
         user_id = call.from_user.id
         db_cursor.execute("DELETE FROM user_cookies WHERE user_id = ?", (user_id,))
@@ -485,6 +555,9 @@ def callback(call):
     ],
 )
 def handle_private_messages(message: types.Message):
+    if not ensure_message_access(message):
+        return
+
     text = (
         message.text if message.text else message.caption if message.caption else None
     )

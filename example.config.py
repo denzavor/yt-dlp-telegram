@@ -34,6 +34,12 @@ allowed_domains: list[str] = [
 # secret key used to encrypt/decrypt stores cookies
 secret_key: str = "your-secret-key"
 
+# optional allowlist for a private bot; leave empty to allow everyone
+allowed_usernames: list[str] = []
+
+# optional shared cookie file for all allowed users, useful for Instagram auth
+shared_cookie_file: str | None = None
+
 # this is used to solve youtube challenges, you can set it to None if you don't
 # need it or change the runtime like {"node": {"path": "node"}}
 js_runtime: dict[str, dict[str, str] | None] | None = {"bun": {"path": "bun"}}
