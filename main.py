@@ -73,7 +73,7 @@ def ensure_message_access(message) -> bool:
     if is_user_allowed(message.from_user):
         return True
 
-    bot.reply_to(message, "This bot is private.")
+    bot.reply_to(message, "Этот бот приватный.")
     return False
 
 
@@ -81,7 +81,7 @@ def ensure_callback_access(call) -> bool:
     if is_user_allowed(call.from_user):
         return True
 
-    bot.answer_callback_query(call.id, "This bot is private.")
+    bot.answer_callback_query(call.id, "Этот бот приватный.")
     return False
 
 
@@ -141,7 +141,7 @@ def _validate_url(message, url: str) -> bool:
     if not is_allowed_domain(url):
         bot.reply_to(
             message,
-            "Invalid URL. Only YouTube, TikTok, Instagram, Twitter and Bluesky links are supported.",
+            "Неверная ссылка. Поддерживаются только YouTube, TikTok, Instagram, Twitter/X и Bluesky.",
         )
         return False
 
@@ -153,7 +153,7 @@ def _validate_url(message, url: str) -> bool:
         "youtube-nocookie.com",
     }:
         if not youtube_url_validation(url):
-            bot.reply_to(message, "Invalid URL")
+            bot.reply_to(message, "Неверная ссылка.")
             return False
 
     return True
@@ -221,7 +221,7 @@ def check_url(content: str, message) -> dict:
     url = match.group(0) if match else content
 
     if not urlparse(url).scheme:
-        bot.reply_to(message, "Invalid URL")
+        bot.reply_to(message, "Неверная ссылка.")
         return {"success": False}
 
     if not _validate_url(message, url):
@@ -239,7 +239,7 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
 
     msg = bot.reply_to(
         message,
-        "Downloading...\n\n<i>Want to stay updated? @SatoruStatus</i>",
+        "Скачиваю...\n\n<i>Want to stay updated? @SatoruStatus</i>",
         parse_mode="HTML",
     )
     video_title = round(time.time() * 1000)
@@ -285,7 +285,7 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
             bot.edit_message_text(
                 chat_id=message.chat.id,
                 message_id=msg.message_id,
-                text="Sending file to Telegram...",
+                text="Отправляю файл в Telegram...",
             )
 
             _send_media(message, info, audio)
@@ -295,21 +295,26 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         err = str(e).lower()
         text: str
 
-        if "[instagram]" in err and "there is no video in this post" in err:
-            text = "This Instagram post appears to be photo-only, and yt-dlp cannot download that post type right now."
+        if "[instagram]" in err and (
+            "there is no video in this post" in err
+            or "no video formats found" in err
+        ):
+            text = "Похоже, это пост только с фото. Сейчас yt-dlp не умеет скачивать такой тип Instagram-поста."
         elif "[youtube]" in err and "sign in" in err:
-            text = "We're sorry, YouTube is ratelimiting third party downloaders right now, try again later."
+            text = "YouTube сейчас ограничивает сторонние загрузчики. Попробуйте позже."
+        elif "instagram sent an empty media response" in err:
+            text = "Instagram не отдал медиа. Обычно это значит, что нужен вход или текущие cookies больше не подходят."
         elif "login required" in err or "rate-limit reached" in err:
-            text = "Content not available (Rate limit or login required)."
+            text = "Контент недоступен: нужен вход или сработало ограничение по запросам."
         else:
-            text = "There was an error downloading the video, please try again later."
+            text = "Не удалось скачать файл. Попробуйте еще раз позже."
 
         bot.edit_message_text(text, message.chat.id, msg.message_id)
 
     except Exception:
         bot.edit_message_text(
-            f"Couldn't send file — make sure it doesn't exceed "
-            f"*{round(config.max_filesize / 1_000_000)}MB* and is supported by Telegram.",
+            f"Не удалось отправить файл. Убедитесь, что он не больше "
+            f"*{round(config.max_filesize / 1_000_000)}MB* и поддерживается Telegram.",
             message.chat.id,
             msg.message_id,
             parse_mode="MARKDOWN",
@@ -352,7 +357,7 @@ def download_command(message):
     text = get_text(message)
     if not text:
         bot.reply_to(
-            message, "Invalid usage, use `/download url`", parse_mode="MARKDOWN"
+            message, "Неверное использование. Используйте `/download url`.", parse_mode="MARKDOWN"
         )
         return
 
@@ -367,7 +372,7 @@ def download_audio_command(message):
 
     text = get_text(message)
     if not text:
-        bot.reply_to(message, "Invalid usage, use `/audio url`", parse_mode="MARKDOWN")
+        bot.reply_to(message, "Неверное использование. Используйте `/audio url`.", parse_mode="MARKDOWN")
         return
 
     log(message, text, "audio")
@@ -387,7 +392,7 @@ def custom(message):
 
     url = check["url"]
 
-    msg = bot.reply_to(message, "Getting formats...")
+    msg = bot.reply_to(message, "Получаю доступные форматы...")
 
     with yt_dlp.YoutubeDL() as ydl:
         info = ydl.extract_info(url, download=False)
@@ -403,7 +408,7 @@ def custom(message):
     markup = quick_markup(data, row_width=2)
 
     bot.delete_message(msg.chat.id, msg.message_id)
-    bot.reply_to(message, "Choose a format", reply_markup=markup)
+    bot.reply_to(message, "Выберите формат.", reply_markup=markup)
 
 
 def filter_cookies_by_domain(cookie_data: str) -> str:
@@ -487,18 +492,18 @@ def handle_cookie(message):
             if resolve_shared_cookie_file():
                 bot.reply_to(
                     message,
-                    "No personal cookies stored. Shared bot cookies are configured.",
+                    "Личные cookies не сохранены, но у бота уже настроены общие cookies.",
                 )
             else:
                 bot.reply_to(
                     message,
-                    "No cookies stored. Send a file with this command to store cookies.",
+                    "Cookies не сохранены. Отправьте файл вместе с этой командой, чтобы сохранить их.",
                 )
         return
 
     file_info = bot.get_file(message.document.file_id)
     if not file_info.file_path:
-        bot.reply_to(message, "Failed to get file information.")
+        bot.reply_to(message, "Не удалось получить информацию о файле.")
         return
 
     downloaded_file = bot.download_file(file_info.file_path)
@@ -513,7 +518,7 @@ def handle_cookie(message):
         (user_id, encrypted_data),
     )
     db_conn.commit()
-    bot.reply_to(message, "Cookies saved successfully!")
+    bot.reply_to(message, "Cookies успешно сохранены.")
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -529,10 +534,10 @@ def callback(call):
         bot.edit_message_caption(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            caption="Cookies deleted successfully!",
+            caption="Cookies успешно удалены.",
             reply_markup=None,
         )
-        bot.answer_callback_query(call.id, "Cookies deleted!")
+        bot.answer_callback_query(call.id, "Cookies удалены.")
     elif call.message.reply_to_message:
         if call.from_user.id == call.message.reply_to_message.from_user.id:
             url = get_text(call.message.reply_to_message)
@@ -541,7 +546,7 @@ def callback(call):
                 call.message.reply_to_message, url, format_id=f"{call.data}+bestaudio"
             )
         else:
-            bot.answer_callback_query(call.id, "You didn't send the request")
+            bot.answer_callback_query(call.id, "Эту кнопку нажали не вы.")
 
 
 @bot.message_handler(

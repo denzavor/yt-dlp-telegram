@@ -323,7 +323,7 @@ class MainTests(unittest.TestCase):
 
         module.handle_private_messages(message)
 
-        self.assertEqual(module.bot.replies[-1][1], "This bot is private.")
+        self.assertEqual(module.bot.replies[-1][1], "Этот бот приватный.")
         self.assertIsNone(fake_ydl.last_url)
 
     def test_instagram_photo_only_error_gets_specific_message(self):
@@ -343,10 +343,70 @@ class MainTests(unittest.TestCase):
         edited_args, edited_kwargs = module.bot.edited[-1]
         self.assertEqual(
             edited_args[0],
-            "This Instagram post appears to be photo-only, and yt-dlp cannot download that post type right now.",
+            "Похоже, это пост только с фото. Сейчас yt-dlp не умеет скачивать такой тип Instagram-поста.",
         )
         self.assertEqual(edited_args[1], 123)
         self.assertEqual(edited_args[2], 99)
+
+    def test_instagram_no_video_formats_error_gets_photo_message(self):
+        module, _fake_ydl = load_main_module(
+            media_extension=".jpg",
+            raised_error="ERROR: [Instagram] DXShON4gKIZ: No video formats found!",
+        )
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text=INSTAGRAM_PHOTO_URL,
+        )
+
+        module.download_video(message, INSTAGRAM_PHOTO_URL)
+
+        edited_args, _edited_kwargs = module.bot.edited[-1]
+        self.assertEqual(
+            edited_args[0],
+            "Похоже, это пост только с фото. Сейчас yt-dlp не умеет скачивать такой тип Instagram-поста.",
+        )
+
+    def test_instagram_empty_media_error_gets_russian_message(self):
+        module, _fake_ydl = load_main_module(
+            media_extension=".mp4",
+            raised_error=(
+                "ERROR: [Instagram] DXQ4sDqAFOS: Instagram sent an empty media response. "
+                "Check if this post is accessible in your browser without being logged-in."
+            ),
+        )
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text=INSTAGRAM_REEL_URL,
+        )
+
+        module.download_video(message, INSTAGRAM_REEL_URL)
+
+        edited_args, _edited_kwargs = module.bot.edited[-1]
+        self.assertEqual(
+            edited_args[0],
+            "Instagram не отдал медиа. Обычно это значит, что нужен вход или текущие cookies больше не подходят.",
+        )
+
+    def test_invalid_download_command_usage_is_russian(self):
+        module, _fake_ydl = load_main_module(media_extension=".mp4")
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text="/download",
+            reply_to_message=None,
+        )
+
+        module.download_command(message)
+
+        self.assertEqual(
+            module.bot.replies[-1][1],
+            "Неверное использование. Используйте `/download url`.",
+        )
 
 
 if __name__ == "__main__":
