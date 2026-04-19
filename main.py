@@ -149,18 +149,22 @@ def _send_media(message, info: Any, audio: bool) -> None:
     """Send the downloaded file back to the user via Telegram."""
     downloads = info.get("requested_downloads") or []
     filepath = downloads[0]["filepath"]
+    extension = os.path.splitext(filepath)[1].lower()
+    is_image = extension in {".jpg", ".jpeg", ".png", ".webp"}
 
     with open(filepath, "rb") as f:
         if audio:
             bot.send_audio(message.chat.id, f, reply_to_message_id=message.message_id)
+        elif is_image:
+            bot.send_photo(message.chat.id, f, reply_to_message_id=message.message_id)
         else:
-            bot.send_video(
-                message.chat.id,
-                f,
-                reply_to_message_id=message.message_id,
-                width=downloads[0]["width"],
-                height=downloads[0]["height"],
-            )
+            send_kwargs = {"reply_to_message_id": message.message_id}
+            if downloads[0].get("width"):
+                send_kwargs["width"] = downloads[0]["width"]
+            if downloads[0].get("height"):
+                send_kwargs["height"] = downloads[0]["height"]
+
+            bot.send_video(message.chat.id, f, **send_kwargs)
 
 
 def _cleanup(video_title: int) -> None:
@@ -489,5 +493,10 @@ def handle_private_messages(message: types.Message):
         return
 
 
-print(f"ready as @{bot.user.username}")
-bot.infinity_polling()
+def main() -> None:
+    print(f"ready as @{bot.user.username}")
+    bot.infinity_polling()
+
+
+if __name__ == "__main__":
+    main()
