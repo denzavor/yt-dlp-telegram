@@ -31,9 +31,6 @@ allowed_domains: list[str] = [
     "www.bsky.app",
 ]
 
-# secret key used to encrypt/decrypt stores cookies
-secret_key: str = "your-secret-key"
-
 # optional allowlist for a private bot; leave empty to allow everyone
 allowed_usernames: list[str] = []
 

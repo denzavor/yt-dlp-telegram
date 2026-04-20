@@ -22,9 +22,7 @@ DEFAULT_SHARED_COOKIE_PAYLOAD = (
 def load_main_module(media_extension=".mp4", raised_error=None, config_overrides=None):
     temp_root = pathlib.Path(tempfile.mkdtemp(prefix="yt-dlp-telegram-e2e-"))
     output_dir = temp_root / "output"
-    data_dir = temp_root / "data"
     output_dir.mkdir(parents=True, exist_ok=True)
-    data_dir.mkdir(parents=True, exist_ok=True)
 
     fake_config = types.ModuleType("config")
     fake_config.token = "test-token"
@@ -48,36 +46,12 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
         "bsky.app",
         "www.bsky.app",
     ]
-    fake_config.secret_key = "test-secret"
     fake_config.js_runtime = {"bun": {"path": "bun"}}
     fake_config.allowed_usernames = ["denzavr", "Deeana_zvrn"]
     fake_config.shared_cookie_admin_usernames = ["denzavr"]
     fake_config.shared_cookie_file = None
     for key, value in (config_overrides or {}).items():
         setattr(fake_config, key, value)
-
-    fake_requests = types.ModuleType("requests")
-
-    class FakeSession:
-        pass
-
-    fake_requests.Session = FakeSession
-
-    fake_fernet_module = types.ModuleType("cryptography.fernet")
-
-    class FakeFernet:
-        def __init__(self, _key):
-            pass
-
-        def encrypt(self, data):
-            return data
-
-        def decrypt(self, data):
-            return data
-
-    fake_fernet_module.Fernet = FakeFernet
-    fake_cryptography = types.ModuleType("cryptography")
-    fake_cryptography.fernet = fake_fernet_module
 
     fake_types_module = types.ModuleType("telebot.types")
 
@@ -225,9 +199,6 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
 
     patched_modules = {
         "config": fake_config,
-        "requests": fake_requests,
-        "cryptography": fake_cryptography,
-        "cryptography.fernet": fake_fernet_module,
         "telebot": fake_telebot,
         "telebot.types": fake_types_module,
         "telebot.util": fake_util_module,
@@ -236,8 +207,6 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
     }
 
     old_modules = {name: sys.modules.get(name) for name in patched_modules}
-    old_app_data_dir = os.environ.get("APP_DATA_DIR")
-    os.environ["APP_DATA_DIR"] = str(data_dir)
 
     try:
         sys.modules.update(patched_modules)
@@ -247,11 +216,6 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
         assert spec.loader is not None
         spec.loader.exec_module(module)
     finally:
-        if old_app_data_dir is None:
-            os.environ.pop("APP_DATA_DIR", None)
-        else:
-            os.environ["APP_DATA_DIR"] = old_app_data_dir
-
         for name, previous in old_modules.items():
             if previous is None:
                 sys.modules.pop(name, None)

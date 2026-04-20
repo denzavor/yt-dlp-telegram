@@ -2,8 +2,6 @@ services:
   bot:
     build: .
     restart: unless-stopped
-    environment:
-      APP_DATA_DIR: /data
     volumes:
       - ./config.py:/app/config.py:ro
       - ./data:/data

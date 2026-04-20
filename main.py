@@ -1,20 +1,15 @@
-import base64
 import datetime
-import hashlib
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import tempfile
 import time
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
-import requests
 import telebot
 import yt_dlp
-from cryptography.fernet import Fernet
 from telebot import types
 from telebot.util import quick_markup
 from yt_dlp.utils import DownloadError, ExtractorError
@@ -23,24 +18,6 @@ import config
 
 os.makedirs(config.output_folder, exist_ok=True)
 
-key = hashlib.sha256(config.secret_key.encode()).digest()
-cipher = Fernet(base64.urlsafe_b64encode(key))
-
-script_dir = os.path.dirname(os.path.abspath(__file__))
-data_dir = os.getenv("APP_DATA_DIR", script_dir)
-os.makedirs(data_dir, exist_ok=True)
-db_path = os.path.join(data_dir, "db.db")
-db_conn = sqlite3.connect(db_path, check_same_thread=False)
-db_cursor = db_conn.cursor()
-db_cursor.execute("""
-    CREATE TABLE IF NOT EXISTS user_cookies (
-        user_id INTEGER PRIMARY KEY,
-        cookie_data TEXT NOT NULL
-    )
-""")
-db_conn.commit()
-
-ses = requests.Session()
 bot = telebot.TeleBot(config.token)
 last_edited = {}
 allowed_usernames = {
@@ -59,16 +36,6 @@ instagram_browser_user_agent = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/136.0.0.0 Safari/537.36"
 )
-
-
-def encrypt_cookie(cookie_data: str) -> str:
-    """Encrypt cookie data using the secret key."""
-    return cipher.encrypt(cookie_data.encode()).decode()
-
-
-def decrypt_cookie(encrypted_data: str) -> str:
-    """Decrypt cookie data using the secret key."""
-    return cipher.decrypt(encrypted_data.encode()).decode()
 
 
 def normalize_username(username: Optional[str]) -> Optional[str]:
@@ -674,15 +641,7 @@ def callback(call):
     if not ensure_callback_access(call):
         return
 
-    if call.data == "delete_cookies":
-        bot.edit_message_caption(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            caption="Личные cookies больше не используются.",
-            reply_markup=None,
-        )
-        bot.answer_callback_query(call.id, "Личные cookies отключены.")
-    elif call.message.reply_to_message:
+    if call.message.reply_to_message:
         if call.from_user.id == call.message.reply_to_message.from_user.id:
             url = get_text(call.message.reply_to_message)
             bot.delete_message(call.message.chat.id, call.message.message_id)

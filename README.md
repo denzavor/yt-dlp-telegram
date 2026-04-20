@@ -149,9 +149,6 @@ allowed_domains: list[str] = [
     "www.bsky.app",
 ]
 
-# secret key used to encrypt/decrypt stores cookies
-secret_key: str = "your-secret-key"
-
 # optional allowlist for a private bot; leave empty to allow everyone
 allowed_usernames: list[str] = []
 
@@ -177,7 +174,7 @@ This project includes:
 
 - `Dockerfile` (Python + ffmpeg + app)
 - `docker-compose.yml` (single `bot` service)
-- persistent app data in `./data` (for the encrypted cookies database)
+- persistent shared cookies files in `./data`
 
 ### 1) Prepare config
 
@@ -205,18 +202,9 @@ This will:
 - build the image
 - mount your local `config.py` into container as read-only:
   - `./config.py:/app/config.py:ro`
-- mount `./data` into the container so stored cookies survive rebuilds:
+- mount `./data` into the container so shared cookies files survive rebuilds:
   - `./data:/data`
 - start bot with restart policy `unless-stopped`
-
-If you are upgrading an existing Docker deployment that already has cookies stored in
-the running container, copy the database out once before rebuilding:
-
-```bash
-mkdir -p data
-docker cp yt-dlp-telegram-bot-1:/app/db.db ./data/db.db
-docker compose up -d --build
-```
 
 ---
 

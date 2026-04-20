@@ -1,5 +1,4 @@
 import importlib.util
-import os
 import pathlib
 import sys
 import tempfile
@@ -19,9 +18,7 @@ INSTAGRAM_REEL_URL = "https://www.instagram.com/reel/DXQ4sDqAFOS/"
 def load_main_module(media_extension=".mp4", raised_error=None, config_overrides=None):
     temp_root = pathlib.Path(tempfile.mkdtemp(prefix="yt-dlp-telegram-tests-"))
     output_dir = temp_root / "output"
-    data_dir = temp_root / "data"
     output_dir.mkdir(parents=True, exist_ok=True)
-    data_dir.mkdir(parents=True, exist_ok=True)
 
     fake_config = types.ModuleType("config")
     fake_config.token = "test-token"
@@ -45,35 +42,11 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
         "bsky.app",
         "www.bsky.app",
     ]
-    fake_config.secret_key = "test-secret"
     fake_config.js_runtime = {"bun": {"path": "bun"}}
     fake_config.allowed_usernames = []
     fake_config.shared_cookie_file = None
     for key, value in (config_overrides or {}).items():
         setattr(fake_config, key, value)
-
-    fake_requests = types.ModuleType("requests")
-
-    class FakeSession:
-        pass
-
-    fake_requests.Session = FakeSession
-
-    fake_fernet_module = types.ModuleType("cryptography.fernet")
-
-    class FakeFernet:
-        def __init__(self, _key):
-            pass
-
-        def encrypt(self, data):
-            return data
-
-        def decrypt(self, data):
-            return data
-
-    fake_fernet_module.Fernet = FakeFernet
-    fake_cryptography = types.ModuleType("cryptography")
-    fake_cryptography.fernet = fake_fernet_module
 
     fake_types_module = types.ModuleType("telebot.types")
 
@@ -230,9 +203,6 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
 
     patched_modules = {
         "config": fake_config,
-        "requests": fake_requests,
-        "cryptography": fake_cryptography,
-        "cryptography.fernet": fake_fernet_module,
         "telebot": fake_telebot,
         "telebot.types": fake_types_module,
         "telebot.util": fake_util_module,
@@ -241,8 +211,6 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
     }
 
     old_modules = {name: sys.modules.get(name) for name in patched_modules}
-    old_app_data_dir = os.environ.get("APP_DATA_DIR")
-    os.environ["APP_DATA_DIR"] = str(data_dir)
 
     try:
         sys.modules.update(patched_modules)
@@ -252,11 +220,6 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
         assert spec.loader is not None
         spec.loader.exec_module(module)
     finally:
-        if old_app_data_dir is None:
-            os.environ.pop("APP_DATA_DIR", None)
-        else:
-            os.environ["APP_DATA_DIR"] = old_app_data_dir
-
         for name, previous in old_modules.items():
             if previous is None:
                 sys.modules.pop(name, None)
@@ -324,37 +287,6 @@ class MainTests(unittest.TestCase):
             media_extension=".mp4",
             config_overrides={"shared_cookie_file": str(shared_cookie)},
         )
-        message = types.SimpleNamespace(
-            chat=types.SimpleNamespace(id=123, type="private"),
-            message_id=7,
-            from_user=types.SimpleNamespace(id=456, username="denzavr"),
-            text=INSTAGRAM_REEL_URL,
-        )
-
-        module.download_video(message, INSTAGRAM_REEL_URL)
-
-        self.assertNotEqual(fake_ydl.last_opts["cookiefile"], str(shared_cookie))
-        self.assertTrue(
-            pathlib.Path(fake_ydl.last_opts["cookiefile"]).name.startswith(
-                "shared_cookies_"
-            )
-        )
-
-    def test_shared_cookie_file_is_used_even_if_personal_cookie_exists_in_db(self):
-        shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
-        shared_cookie.write_text("shared-cookie-data", encoding="utf-8")
-
-        module, fake_ydl = load_main_module(
-            media_extension=".mp4",
-            config_overrides={"shared_cookie_file": str(shared_cookie)},
-        )
-        encrypted_personal_cookie = module.encrypt_cookie("personal-cookie-data")
-        module.db_cursor.execute(
-            "INSERT OR REPLACE INTO user_cookies (user_id, cookie_data) VALUES (?, ?)",
-            (456, encrypted_personal_cookie),
-        )
-        module.db_conn.commit()
-
         message = types.SimpleNamespace(
             chat=types.SimpleNamespace(id=123, type="private"),
             message_id=7,
@@ -565,12 +497,6 @@ class MainTests(unittest.TestCase):
             module.bot.replies[-1][1],
             "Личные cookies отключены. Бот использует только общие cookies. Обновить их через /sharedcookies может только @denzavr.",
         )
-
-    def test_app_data_dir_is_used_for_sqlite_db(self):
-        module, _fake_ydl = load_main_module(media_extension=".mp4")
-
-        self.assertTrue(module.db_path.endswith("/data/db.db"))
-        self.assertTrue(pathlib.Path(module.db_path).exists())
 
     def test_private_mode_blocks_unknown_users(self):
         module, fake_ydl = load_main_module(

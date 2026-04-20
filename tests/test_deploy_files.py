@@ -11,6 +11,7 @@ class DeployFileTests(unittest.TestCase):
 
         self.assertIn("./config.py:/app/config.py:ro", compose)
         self.assertIn("./data:/data", compose)
+        self.assertNotIn("APP_DATA_DIR", compose)
 
     def test_dockerignore_excludes_config_py_from_image_build_context(self):
         dockerignore = (REPO_ROOT / ".dockerignore").read_text().splitlines()
