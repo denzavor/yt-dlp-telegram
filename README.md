@@ -317,6 +317,18 @@ Allowed users can update the shared bot cookies directly in Telegram by sending 
 with `/sharedcookies`. To restrict who can upload the shared file, set
 `shared_cookie_admin_usernames`. In this bot only `@denzavr` should be able to update it.
 
+## Test Commands
+
+Run all tests:
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Run only the e2e-style harness tests:
+```bash
+python3 -m unittest tests.test_e2e -v
+```
+
 ### Where can I find cookies.txt
 You need to export it from your browser using an extension like [this one](https://github.com/kairi003/Get-cookies.txt-LOCALLY?tab=readme-ov-file#from-webstore)
 
