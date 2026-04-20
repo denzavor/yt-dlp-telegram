@@ -300,7 +300,44 @@ class MainTests(unittest.TestCase):
 
         module.download_video(message, INSTAGRAM_REEL_URL)
 
-        self.assertEqual(fake_ydl.last_opts["cookiefile"], str(shared_cookie))
+        self.assertNotEqual(fake_ydl.last_opts["cookiefile"], str(shared_cookie))
+        self.assertTrue(
+            pathlib.Path(fake_ydl.last_opts["cookiefile"]).name.startswith(
+                "shared_cookies_"
+            )
+        )
+
+    def test_shared_cookie_file_is_copied_before_downloader_can_mutate_it(self):
+        shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
+        original_cookie_text = "cookie-data"
+        shared_cookie.write_text(original_cookie_text, encoding="utf-8")
+
+        module, fake_ydl = load_main_module(
+            media_extension=".mp4",
+            config_overrides={"shared_cookie_file": str(shared_cookie)},
+        )
+        original_youtube_dl = module.yt_dlp.YoutubeDL
+
+        class MutatingYoutubeDL(original_youtube_dl):
+            def extract_info(self, url, download=False):
+                cookiefile = self.opts.get("cookiefile")
+                if cookiefile:
+                    with open(cookiefile, "a", encoding="utf-8") as f:
+                        f.write("\nmutated")
+                return super().extract_info(url, download=download)
+
+        module.yt_dlp.YoutubeDL = MutatingYoutubeDL
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text=INSTAGRAM_REEL_URL,
+        )
+
+        module.download_video(message, INSTAGRAM_REEL_URL)
+
+        self.assertNotEqual(fake_ydl.last_opts["cookiefile"], str(shared_cookie))
+        self.assertEqual(shared_cookie.read_text(encoding="utf-8"), original_cookie_text)
 
     def test_instagram_photo_error_falls_back_to_gallery_dl(self):
         module, _fake_ydl = load_main_module(
@@ -362,7 +399,9 @@ class MainTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertNotIn("-C", calls[0])
         self.assertIn("-C", calls[1])
-        self.assertEqual(calls[1][calls[1].index("-C") + 1], str(shared_cookie))
+        shared_cookie_arg = calls[1][calls[1].index("-C") + 1]
+        self.assertNotEqual(shared_cookie_arg, str(shared_cookie))
+        self.assertTrue(pathlib.Path(shared_cookie_arg).name.startswith("shared_cookies_"))
 
     def test_instagram_photo_error_without_gallery_dl_keeps_russian_message(self):
         module, _fake_ydl = load_main_module(

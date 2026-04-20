@@ -301,6 +301,8 @@ and point `shared_cookie_file` to `/data/<filename>`.
 For Instagram image posts, the bot can use `gallery-dl` as a fallback downloader. It
 first tries without cookies for public image posts, and only then falls back to the
 configured shared cookies if needed.
+When shared cookies are configured, the bot uses a temporary per-request copy so the
+original file in `./data` is not modified by `yt-dlp` or `gallery-dl`.
 
 ## Private Bot Mode
 

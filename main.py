@@ -101,6 +101,17 @@ def resolve_shared_cookie_file() -> Optional[str]:
     return None
 
 
+def copy_cookie_file_to_temp(source_path: str, prefix: str) -> str:
+    fd, temp_path = tempfile.mkstemp(
+        prefix=prefix,
+        suffix=".txt",
+        dir=config.output_folder,
+    )
+    os.close(fd)
+    shutil.copyfile(source_path, temp_path)
+    return temp_path
+
+
 def is_instagram_url(url: str) -> bool:
     try:
         domain = urlparse(url).netloc.lower()
@@ -368,6 +379,7 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         ydl_opts["remote_components"] = {"ejs:github"}
 
     cookie_file = None
+    shared_cookie_copy = None
     cookie_candidates = [None]
     try:
         user_id = message.from_user.id
@@ -376,19 +388,23 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         )
         result = db_cursor.fetchone()
 
+        shared_cookie_path = resolve_shared_cookie_file()
+        if shared_cookie_path:
+            shared_cookie_copy = copy_cookie_file_to_temp(
+                shared_cookie_path,
+                "shared_cookies_",
+            )
+
         if result:
             decrypted_data = decrypt_cookie(result[0])
             cookie_file = f"{config.output_folder}/cookies_{user_id}.txt"
             with open(cookie_file, "w") as f:
                 f.write(decrypted_data)
             ydl_opts["cookiefile"] = cookie_file
-        else:
-            shared_cookie_path = resolve_shared_cookie_file()
-            if shared_cookie_path:
-                ydl_opts["cookiefile"] = shared_cookie_path
+        elif shared_cookie_copy:
+            ydl_opts["cookiefile"] = shared_cookie_copy
 
-        shared_cookie_path = resolve_shared_cookie_file()
-        for candidate in (cookie_file, shared_cookie_path):
+        for candidate in (cookie_file, shared_cookie_copy):
             if candidate and candidate not in cookie_candidates:
                 cookie_candidates.append(candidate)
 
@@ -456,8 +472,9 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         )
 
     finally:
-        if cookie_file and os.path.exists(cookie_file):
-            os.remove(cookie_file)
+        for temp_cookie_path in (cookie_file, shared_cookie_copy):
+            if temp_cookie_path and os.path.exists(temp_cookie_path):
+                os.remove(temp_cookie_path)
         _cleanup(video_title)
 
 
