@@ -267,6 +267,39 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
 
 
 class MainTests(unittest.TestCase):
+    def test_initial_download_message_has_no_status_footer(self):
+        module, _fake_ydl = load_main_module(media_extension=".mp4")
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text="https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        )
+
+        module.download_video(message, message.text)
+
+        self.assertEqual(module.bot.replies[0][1], "Скачиваю...")
+
+    def test_progress_message_has_no_status_footer(self):
+        module, _fake_ydl = load_main_module(media_extension=".mp4")
+        message = types.SimpleNamespace(chat=types.SimpleNamespace(id=123), message_id=7)
+        status_message = types.SimpleNamespace(message_id=99)
+
+        hook = module._make_progress_hook(message, status_message)
+        hook(
+            {
+                "status": "downloading",
+                "downloaded_bytes": 50,
+                "total_bytes": 100,
+                "info_dict": {"title": "Test video"},
+            }
+        )
+
+        self.assertEqual(
+            module.bot.edited[-1][1]["text"],
+            "Скачиваю Test video\n\n50%",
+        )
+
     def test_instagram_photo_url_is_downloaded_and_sent_as_photo(self):
         module, fake_ydl = load_main_module(media_extension=".jpg")
         message = types.SimpleNamespace(

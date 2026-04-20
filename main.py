@@ -309,11 +309,7 @@ def _make_progress_hook(message, msg) -> Callable:
             bot.edit_message_text(
                 chat_id=message.chat.id,
                 message_id=msg.message_id,
-                text=(
-                    f"Downloading {d['info_dict']['title']}\n\n{perc}%\n\n"
-                    f"<i>Want to stay updated? @SatoruStatus</i>"
-                ),
-                parse_mode="HTML",
+                text=f"Скачиваю {d['info_dict']['title']}\n\n{perc}%",
             )
             last_edited[f"{message.chat.id}-{msg.message_id}"] = datetime.datetime.now()
         except Exception as e:
@@ -374,8 +370,7 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
 
     msg = bot.reply_to(
         message,
-        "Скачиваю...\n\n<i>Want to stay updated? @SatoruStatus</i>",
-        parse_mode="HTML",
+        "Скачиваю...",
     )
     video_title = round(time.time() * 1000)
 
