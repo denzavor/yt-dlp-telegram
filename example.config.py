@@ -40,6 +40,9 @@ allowed_usernames: list[str] = []
 # optional shared cookie file for all allowed users, useful for Instagram auth
 shared_cookie_file: str | None = None
 
+# optional usernames allowed to update the shared cookie file
+shared_cookie_admin_usernames: list[str] = ["denzavr"]
+
 # optional gallery-dl binary path for Instagram image fallback
 gallery_dl_binary: str = "gallery-dl"
 

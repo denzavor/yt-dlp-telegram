@@ -307,6 +307,37 @@ class MainTests(unittest.TestCase):
             )
         )
 
+    def test_shared_cookie_file_is_used_even_if_personal_cookie_exists_in_db(self):
+        shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
+        shared_cookie.write_text("shared-cookie-data", encoding="utf-8")
+
+        module, fake_ydl = load_main_module(
+            media_extension=".mp4",
+            config_overrides={"shared_cookie_file": str(shared_cookie)},
+        )
+        encrypted_personal_cookie = module.encrypt_cookie("personal-cookie-data")
+        module.db_cursor.execute(
+            "INSERT OR REPLACE INTO user_cookies (user_id, cookie_data) VALUES (?, ?)",
+            (456, encrypted_personal_cookie),
+        )
+        module.db_conn.commit()
+
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text=INSTAGRAM_REEL_URL,
+        )
+
+        module.download_video(message, INSTAGRAM_REEL_URL)
+
+        self.assertNotEqual(fake_ydl.last_opts["cookiefile"], str(shared_cookie))
+        self.assertTrue(
+            pathlib.Path(fake_ydl.last_opts["cookiefile"]).name.startswith(
+                "shared_cookies_"
+            )
+        )
+
     def test_shared_cookie_file_is_copied_before_downloader_can_mutate_it(self):
         shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
         original_cookie_text = "cookie-data"
@@ -456,6 +487,50 @@ class MainTests(unittest.TestCase):
         self.assertEqual(
             module.bot.replies[-1][1],
             "Общие cookies успешно обновлены. Бот начнет использовать их для новых запросов.",
+        )
+
+    def test_shared_cookie_command_is_limited_to_denzavr(self):
+        shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
+        module, _fake_ydl = load_main_module(
+            media_extension=".mp4",
+            config_overrides={
+                "shared_cookie_file": str(shared_cookie),
+                "shared_cookie_admin_usernames": ["denzavr"],
+            },
+        )
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="Deeana_zvrn"),
+            text="/sharedcookies",
+            caption=None,
+            document=types.SimpleNamespace(file_id="file-1"),
+        )
+
+        module.handle_shared_cookie(message)
+
+        self.assertFalse(shared_cookie.exists())
+        self.assertEqual(
+            module.bot.replies[-1][1],
+            "Общие cookies может обновлять только @denzavr.",
+        )
+
+    def test_personal_cookie_command_is_disabled(self):
+        module, _fake_ydl = load_main_module(media_extension=".mp4")
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="Deeana_zvrn"),
+            text="/cookies",
+            caption=None,
+            document=None,
+        )
+
+        module.handle_cookie(message)
+
+        self.assertEqual(
+            module.bot.replies[-1][1],
+            "Личные cookies отключены. Бот использует только общие cookies. Обновить их через /sharedcookies может только @denzavr.",
         )
 
     def test_app_data_dir_is_used_for_sqlite_db(self):

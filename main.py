@@ -47,6 +47,10 @@ allowed_usernames = {
     username.lstrip("@").lower()
     for username in getattr(config, "allowed_usernames", [])
 }
+shared_cookie_admin_usernames = {
+    username.lstrip("@").lower()
+    for username in getattr(config, "shared_cookie_admin_usernames", ["denzavr"])
+}
 shared_cookie_file = getattr(config, "shared_cookie_file", None)
 gallery_dl_binary = getattr(config, "gallery_dl_binary", "gallery-dl")
 image_extensions = {".jpg", ".jpeg", ".png", ".webp"}
@@ -77,6 +81,19 @@ def is_user_allowed(user: Any) -> bool:
     if not allowed_usernames:
         return True
     return normalize_username(getattr(user, "username", None)) in allowed_usernames
+
+
+def is_shared_cookie_admin(user: Any) -> bool:
+    return normalize_username(getattr(user, "username", None)) in shared_cookie_admin_usernames
+
+
+def format_shared_cookie_admins() -> str:
+    if not shared_cookie_admin_usernames:
+        return "@denzavr"
+
+    return ", ".join(
+        f"@{username}" for username in sorted(shared_cookie_admin_usernames)
+    )
 
 
 def ensure_message_access(message) -> bool:
@@ -378,16 +395,9 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         ydl_opts["js_runtimes"] = config.js_runtime
         ydl_opts["remote_components"] = {"ejs:github"}
 
-    cookie_file = None
     shared_cookie_copy = None
     cookie_candidates = [None]
     try:
-        user_id = message.from_user.id
-        db_cursor.execute(
-            "SELECT cookie_data FROM user_cookies WHERE user_id = ?", (user_id,)
-        )
-        result = db_cursor.fetchone()
-
         shared_cookie_path = resolve_shared_cookie_file()
         if shared_cookie_path:
             shared_cookie_copy = copy_cookie_file_to_temp(
@@ -395,16 +405,10 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
                 "shared_cookies_",
             )
 
-        if result:
-            decrypted_data = decrypt_cookie(result[0])
-            cookie_file = f"{config.output_folder}/cookies_{user_id}.txt"
-            with open(cookie_file, "w") as f:
-                f.write(decrypted_data)
-            ydl_opts["cookiefile"] = cookie_file
-        elif shared_cookie_copy:
+        if shared_cookie_copy:
             ydl_opts["cookiefile"] = shared_cookie_copy
 
-        for candidate in (cookie_file, shared_cookie_copy):
+        for candidate in (shared_cookie_copy,):
             if candidate and candidate not in cookie_candidates:
                 cookie_candidates.append(candidate)
 
@@ -472,7 +476,7 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         )
 
     finally:
-        for temp_cookie_path in (cookie_file, shared_cookie_copy):
+        for temp_cookie_path in (shared_cookie_copy,):
             if temp_cookie_path and os.path.exists(temp_cookie_path):
                 os.remove(temp_cookie_path)
         _cleanup(video_title)
@@ -607,6 +611,12 @@ def is_cookie_command(message):
 def handle_shared_cookie(message):
     if not ensure_message_access(message):
         return
+    if not is_shared_cookie_admin(message.from_user):
+        bot.reply_to(
+            message,
+            f"Общие cookies может обновлять только {format_shared_cookie_admins()}.",
+        )
+        return
 
     shared_cookie_path = resolve_shared_cookie_file() or shared_cookie_file
     if not shared_cookie_path:
@@ -655,71 +665,13 @@ def handle_cookie(message):
     if not ensure_message_access(message):
         return
 
-    user_id = message.from_user.id
-
-    document = getattr(message, "document", None)
-
-    if not document:
-        db_cursor.execute(
-            "SELECT cookie_data FROM user_cookies WHERE user_id = ?", (user_id,)
-        )
-        result = db_cursor.fetchone()
-
-        if result:
-            cookie_file = f"{config.output_folder}/cookies_{user_id}_temp.txt"
-            try:
-                decrypted_data = decrypt_cookie(result[0])
-                with open(cookie_file, "w") as f:
-                    f.write(decrypted_data)
-
-                markup = types.InlineKeyboardMarkup()
-                delete_btn = types.InlineKeyboardButton(
-                    "🗑 Delete", callback_data="delete_cookies"
-                )
-                markup.add(delete_btn)
-
-                with open(cookie_file, "rb") as f:
-                    bot.send_document(
-                        message.chat.id,
-                        f,
-                        reply_to_message_id=message.message_id,
-                        visible_file_name="cookies.txt",
-                        reply_markup=markup,
-                    )
-            finally:
-                if os.path.exists(cookie_file):
-                    os.remove(cookie_file)
-        else:
-            if resolve_shared_cookie_file():
-                bot.reply_to(
-                    message,
-                    "Личные cookies не сохранены, но у бота уже настроены общие cookies.",
-                )
-            else:
-                bot.reply_to(
-                    message,
-                    "Cookies не сохранены. Отправьте файл вместе с этой командой, чтобы сохранить их.",
-                )
-        return
-
-    file_info = bot.get_file(document.file_id)
-    if not file_info.file_path:
-        bot.reply_to(message, "Не удалось получить информацию о файле.")
-        return
-
-    downloaded_file = bot.download_file(file_info.file_path)
-    cookie_data = downloaded_file.decode("utf-8")
-
-    filtered_cookie_data = filter_cookies_by_domain(cookie_data)
-
-    encrypted_data = encrypt_cookie(filtered_cookie_data)
-
-    db_cursor.execute(
-        "INSERT OR REPLACE INTO user_cookies (user_id, cookie_data) VALUES (?, ?)",
-        (user_id, encrypted_data),
+    bot.reply_to(
+        message,
+        (
+            "Личные cookies отключены. Бот использует только общие cookies. "
+            f"Обновить их через /sharedcookies может только {format_shared_cookie_admins()}."
+        ),
     )
-    db_conn.commit()
-    bot.reply_to(message, "Cookies успешно сохранены.")
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -728,17 +680,13 @@ def callback(call):
         return
 
     if call.data == "delete_cookies":
-        user_id = call.from_user.id
-        db_cursor.execute("DELETE FROM user_cookies WHERE user_id = ?", (user_id,))
-        db_conn.commit()
-
         bot.edit_message_caption(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            caption="Cookies успешно удалены.",
+            caption="Личные cookies больше не используются.",
             reply_markup=None,
         )
-        bot.answer_callback_query(call.id, "Cookies удалены.")
+        bot.answer_callback_query(call.id, "Личные cookies отключены.")
     elif call.message.reply_to_message:
         if call.from_user.id == call.message.reply_to_message.from_user.id:
             url = get_text(call.message.reply_to_message)

@@ -158,6 +158,9 @@ allowed_usernames: list[str] = []
 # optional shared cookie file for all allowed users, useful for Instagram auth
 shared_cookie_file: str | None = None
 
+# optional usernames allowed to update the shared cookie file
+shared_cookie_admin_usernames: list[str] = ["denzavr"]
+
 # optional gallery-dl binary path for Instagram image fallback
 gallery_dl_binary: str = "gallery-dl"
 
@@ -286,7 +289,8 @@ Set `max_filesize` according to what you want the bot to attempt and what Telegr
 
 ## Cookies Support
 
-Some websites may require authentication to download content, this can be set by passing a `cookies.txt` file to the `/cookie` command.
+This bot is configured to use only one shared `cookies.txt` file. Personal user cookies
+via `/cookie` are disabled.
 YouTube requires a js challenge to be solved to download videos using cookies, this needs `js_runtime` to be set in `config.py`, for example if you use **Node** you can set:
 ```py
 js_runtime: dict[str, dict[str, str] | None] | None = {"node": {"path": "node"}}
@@ -294,8 +298,6 @@ js_runtime: dict[str, dict[str, str] | None] | None = {"node": {"path": "node"}}
 # Or if you use Bun
 js_runtime: dict[str, dict[str, str] | None] | None = {"bun": {"path": "bun"}}
 ```
-Cookies are stored in `db.db` (using Sqlite3) and encrypted with a `secret_key` that can be set in the config file.
-When running with Docker, that database lives in `./data/db.db` so it is not lost on rebuild.
 If you want one shared login for a private bot, put the exported cookies file in `./data`
 and point `shared_cookie_file` to `/data/<filename>`.
 For Instagram image posts, the bot can use `gallery-dl` as a fallback downloader. It
@@ -312,7 +314,8 @@ usernames. If the list is empty, the bot stays public.
 ## Shared Cookies Update
 
 Allowed users can update the shared bot cookies directly in Telegram by sending a file
-with `/sharedcookies`. This avoids having to replace the server file manually.
+with `/sharedcookies`. To restrict who can upload the shared file, set
+`shared_cookie_admin_usernames`. In this bot only `@denzavr` should be able to update it.
 
 ### Where can I find cookies.txt
 You need to export it from your browser using an extension like [this one](https://github.com/kairi003/Get-cookies.txt-LOCALLY?tab=readme-ov-file#from-webstore)
