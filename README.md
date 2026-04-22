@@ -305,6 +305,19 @@ Allowed users can update the shared bot cookies directly in Telegram by sending 
 with `/sharedcookies`. To restrict who can upload the shared file, set
 `shared_cookie_admin_usernames`. In this bot only `@denzavr` should be able to update it.
 
+If you want to sync a local exported file to Toronto without opening Telegram, use:
+```bash
+./scripts/sync_toronto_cookies.sh ~/Downloads/cookies.txt
+```
+
+This safely compares hashes first and only uploads when the file changed.
+
+Fully automatic cookie refresh is not guaranteed here, because Instagram cookies still
+have to come from a real logged-in browser session. The reliable setup is:
+- export a fresh `cookies.txt` from the browser into the same local path
+- run `./scripts/sync_toronto_cookies.sh`
+- or send the file to the bot via `/sharedcookies` as `@denzavr`
+
 ## Test Commands
 
 Run all tests:
