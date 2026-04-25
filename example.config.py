@@ -43,6 +43,9 @@ shared_cookie_admin_usernames: list[str] = ["denzavr"]
 # optional gallery-dl binary path for Instagram image fallback
 gallery_dl_binary: str = "gallery-dl"
 
+# fail fast when gallery-dl cannot fetch an Instagram image post
+gallery_dl_timeout: int = 25
+
 # this is used to solve youtube challenges, you can set it to None if you don't
 # need it or change the runtime like {"node": {"path": "node"}}
 js_runtime: dict[str, dict[str, str] | None] | None = {"bun": {"path": "bun"}}

@@ -161,6 +161,9 @@ shared_cookie_admin_usernames: list[str] = ["denzavr"]
 # optional gallery-dl binary path for Instagram image fallback
 gallery_dl_binary: str = "gallery-dl"
 
+# fail fast when gallery-dl cannot fetch an Instagram image post
+gallery_dl_timeout: int = 25
+
 # this is used to solve youtube challenges, you can set it to None if you don't
 # need it or change the runtime like {"bun": {"path": "bun"}}
 js_runtime: dict[str, dict[str, str] | None] | None = {"node": {"path": "node"}}
@@ -288,9 +291,10 @@ js_runtime: dict[str, dict[str, str] | None] | None = {"bun": {"path": "bun"}}
 ```
 If you want one shared login for a private bot, put the exported cookies file in `./data`
 and point `shared_cookie_file` to `/data/<filename>`.
-For Instagram image posts, the bot can use `gallery-dl` as a fallback downloader. It
-first tries without cookies for public image posts, and only then falls back to the
-configured shared cookies if needed.
+For Instagram image posts (`/p/...`), the bot tries `gallery-dl` before `yt-dlp` so
+photo-only posts do not wait on video extraction. If shared cookies are configured,
+`gallery-dl` tries those first, then retries without cookies. The default
+`gallery_dl_timeout` is 25 seconds to fail fast on stuck image downloads.
 When shared cookies are configured, the bot uses a temporary per-request copy so the
 original file in `./data` is not modified by `yt-dlp` or `gallery-dl`.
 

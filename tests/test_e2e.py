@@ -47,7 +47,7 @@ class E2ETests(unittest.TestCase):
         self.assertEqual(events[-2]["event"], "send_photo")
         self.assertEqual(events[-1]["event"], "delete")
 
-    def test_instagram_photo_end_to_end_retries_shared_cookies_after_public_timeout(self):
+    def test_instagram_photo_end_to_end_retries_public_after_shared_cookie_timeout(self):
         shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
         shared_cookie.write_text("cookie-data", encoding="utf-8")
         harness = build_e2e_harness(
@@ -62,7 +62,7 @@ class E2ETests(unittest.TestCase):
             download_dir = pathlib.Path(command[command.index("-D") + 1])
             download_dir.mkdir(parents=True, exist_ok=True)
 
-            if "-C" not in command:
+            if "-C" in command:
                 raise subprocess.TimeoutExpired(command, timeout)
 
             (download_dir / "photo.jpg").write_bytes(b"image")
@@ -73,8 +73,8 @@ class E2ETests(unittest.TestCase):
         events = harness.run_download(INSTAGRAM_PHOTO_URL, username="Deeana_zvrn")
 
         self.assertEqual(len(calls), 2)
-        self.assertNotIn("-C", calls[0])
-        self.assertIn("-C", calls[1])
+        self.assertIn("-C", calls[0])
+        self.assertNotIn("-C", calls[1])
         self.assertEqual(events[-2]["event"], "send_photo")
         self.assertEqual(events[-1]["event"], "delete")
 

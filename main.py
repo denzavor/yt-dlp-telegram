@@ -30,6 +30,7 @@ shared_cookie_admin_usernames = {
 }
 shared_cookie_file = getattr(config, "shared_cookie_file", None)
 gallery_dl_binary = getattr(config, "gallery_dl_binary", "gallery-dl")
+gallery_dl_timeout = getattr(config, "gallery_dl_timeout", 25)
 image_extensions = {".jpg", ".jpeg", ".png", ".webp"}
 instagram_browser_user_agent = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -108,6 +109,18 @@ def is_instagram_url(url: str) -> bool:
     return domain in {"instagram.com", "www.instagram.com"}
 
 
+def is_instagram_post_url(url: str) -> bool:
+    if not is_instagram_url(url):
+        return False
+
+    try:
+        path = urlparse(url).path
+    except ValueError:
+        return False
+
+    return path.startswith("/p/")
+
+
 def send_photos(message, filepaths: list[str]) -> None:
     for filepath in filepaths:
         with open(filepath, "rb") as f:
@@ -149,11 +162,11 @@ def run_gallery_dl_instagram(url: str, download_dir: str, cookie_path: Optional[
         capture_output=True,
         text=True,
         check=False,
-        timeout=90,
+        timeout=gallery_dl_timeout,
     )
 
 
-def try_instagram_gallery_fallback(
+def try_instagram_gallery_download(
     message,
     msg,
     url: str,
@@ -360,7 +373,8 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         ydl_opts["remote_components"] = {"ejs:github"}
 
     shared_cookie_copy = None
-    cookie_candidates = [None]
+    cookie_candidates: list[Optional[str]] = []
+    attempted_instagram_gallery = False
     try:
         shared_cookie_path = resolve_shared_cookie_file()
         if shared_cookie_path:
@@ -371,10 +385,14 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
 
         if shared_cookie_copy:
             ydl_opts["cookiefile"] = shared_cookie_copy
+            cookie_candidates.append(shared_cookie_copy)
 
-        for candidate in (shared_cookie_copy,):
-            if candidate and candidate not in cookie_candidates:
-                cookie_candidates.append(candidate)
+        cookie_candidates.append(None)
+
+        if not audio and format_id == "mp4" and is_instagram_post_url(url):
+            attempted_instagram_gallery = True
+            if try_instagram_gallery_download(message, msg, url, cookie_candidates):
+                return
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -395,12 +413,13 @@ def download_video(message, content, audio=False, format_id="mp4") -> None:
         if (
             not audio
             and is_instagram_url(url)
+            and not attempted_instagram_gallery
             and "[instagram]" in err
             and (
                 "there is no video in this post" in err
                 or "no video formats found" in err
             )
-            and try_instagram_gallery_fallback(message, msg, url, cookie_candidates)
+            and try_instagram_gallery_download(message, msg, url, cookie_candidates)
         ):
             return
         if "[instagram]" in err and audio and (

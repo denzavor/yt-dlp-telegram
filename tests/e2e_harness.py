@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import types
@@ -215,6 +216,11 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
         spec.loader.exec_module(module)
+        module.subprocess = types.SimpleNamespace(
+            run=subprocess.run,
+            TimeoutExpired=subprocess.TimeoutExpired,
+            CompletedProcess=subprocess.CompletedProcess,
+        )
     finally:
         for name, previous in old_modules.items():
             if previous is None:

@@ -1,5 +1,6 @@
 import importlib.util
 import pathlib
+import subprocess
 import sys
 import tempfile
 import types
@@ -219,6 +220,11 @@ def load_main_module(media_extension=".mp4", raised_error=None, config_overrides
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
         spec.loader.exec_module(module)
+        module.subprocess = types.SimpleNamespace(
+            run=subprocess.run,
+            TimeoutExpired=subprocess.TimeoutExpired,
+            CompletedProcess=subprocess.CompletedProcess,
+        )
     finally:
         for name, previous in old_modules.items():
             if previous is None:
@@ -276,6 +282,49 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(fake_ydl.last_url, INSTAGRAM_PHOTO_URL)
         self.assertTrue(fake_ydl.last_download)
+        self.assertEqual(len(module.bot.sent_photo), 1)
+        self.assertEqual(len(module.bot.sent_video), 0)
+
+    def test_instagram_photo_post_uses_gallery_dl_with_shared_cookies_before_yt_dlp(self):
+        shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
+        shared_cookie.write_text("cookie-data", encoding="utf-8")
+        module, fake_ydl = load_main_module(
+            media_extension=".mp4",
+            config_overrides={"shared_cookie_file": str(shared_cookie)},
+        )
+        calls = []
+
+        def fake_run(command, capture_output, text, check, timeout):
+            calls.append(
+                {
+                    "command": command,
+                    "timeout": timeout,
+                }
+            )
+            download_dir = pathlib.Path(command[command.index("-D") + 1])
+            download_dir.mkdir(parents=True, exist_ok=True)
+            (download_dir / "photo.jpg").write_bytes(b"image-bytes")
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        module.subprocess.run = fake_run
+
+        message = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=123, type="private"),
+            message_id=7,
+            from_user=types.SimpleNamespace(id=456, username="denzavr"),
+            text=INSTAGRAM_PHOTO_URL,
+        )
+
+        module.download_video(message, INSTAGRAM_PHOTO_URL)
+
+        self.assertIsNone(fake_ydl.last_url)
+        self.assertEqual(len(calls), 1)
+        command = calls[0]["command"]
+        self.assertEqual(calls[0]["timeout"], 25)
+        self.assertIn("-C", command)
+        shared_cookie_arg = command[command.index("-C") + 1]
+        self.assertNotEqual(shared_cookie_arg, str(shared_cookie))
+        self.assertTrue(pathlib.Path(shared_cookie_arg).name.startswith("shared_cookies_"))
         self.assertEqual(len(module.bot.sent_photo), 1)
         self.assertEqual(len(module.bot.sent_video), 0)
 
@@ -363,7 +412,7 @@ class MainTests(unittest.TestCase):
             module.bot.edited[-1][1]["text"], "Отправляю файл в Telegram..."
         )
 
-    def test_instagram_gallery_fallback_tries_public_then_shared_cookies(self):
+    def test_instagram_gallery_download_tries_shared_cookies_then_public(self):
         shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
         shared_cookie.write_text("cookie-data", encoding="utf-8")
         module, _fake_ydl = load_main_module(
@@ -377,7 +426,7 @@ class MainTests(unittest.TestCase):
             calls.append(command)
             download_dir = pathlib.Path(command[command.index("-D") + 1])
             download_dir.mkdir(parents=True, exist_ok=True)
-            if "-C" in command:
+            if "-C" not in command:
                 (download_dir / "photo.jpg").write_bytes(b"image-bytes")
             return types.SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -393,9 +442,9 @@ class MainTests(unittest.TestCase):
         module.download_video(message, INSTAGRAM_PHOTO_URL)
 
         self.assertEqual(len(calls), 2)
-        self.assertNotIn("-C", calls[0])
-        self.assertIn("-C", calls[1])
-        shared_cookie_arg = calls[1][calls[1].index("-C") + 1]
+        self.assertIn("-C", calls[0])
+        self.assertNotIn("-C", calls[1])
+        shared_cookie_arg = calls[0][calls[0].index("-C") + 1]
         self.assertNotEqual(shared_cookie_arg, str(shared_cookie))
         self.assertTrue(pathlib.Path(shared_cookie_arg).name.startswith("shared_cookies_"))
 
