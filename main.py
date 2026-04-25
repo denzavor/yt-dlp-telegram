@@ -170,6 +170,8 @@ def try_instagram_gallery_fallback(
                 run_gallery_dl_instagram(url, attempt_dir, cookie_path)
             except OSError:
                 return False
+            except subprocess.TimeoutExpired:
+                continue
 
             image_paths = collect_downloaded_images(attempt_dir)
 

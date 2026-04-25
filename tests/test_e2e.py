@@ -1,4 +1,5 @@
 import pathlib
+import subprocess
 import tempfile
 import unittest
 
@@ -43,6 +44,37 @@ class E2ETests(unittest.TestCase):
 
         self.assertEqual(events[0]["event"], "reply")
         self.assertEqual(events[0]["text"], "Скачиваю...")
+        self.assertEqual(events[-2]["event"], "send_photo")
+        self.assertEqual(events[-1]["event"], "delete")
+
+    def test_instagram_photo_end_to_end_retries_shared_cookies_after_public_timeout(self):
+        shared_cookie = pathlib.Path(tempfile.mkdtemp()) / "instagram.txt"
+        shared_cookie.write_text("cookie-data", encoding="utf-8")
+        harness = build_e2e_harness(
+            media_extension=".mp4",
+            raised_error="ERROR: [Instagram] DXShON4gKIZ: No video formats found!",
+            config_overrides={"shared_cookie_file": str(shared_cookie)},
+        )
+        calls = []
+
+        def fake_run(command, capture_output, text, check, timeout):
+            calls.append(command)
+            download_dir = pathlib.Path(command[command.index("-D") + 1])
+            download_dir.mkdir(parents=True, exist_ok=True)
+
+            if "-C" not in command:
+                raise subprocess.TimeoutExpired(command, timeout)
+
+            (download_dir / "photo.jpg").write_bytes(b"image")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        harness.module.subprocess.run = fake_run
+
+        events = harness.run_download(INSTAGRAM_PHOTO_URL, username="Deeana_zvrn")
+
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn("-C", calls[0])
+        self.assertIn("-C", calls[1])
         self.assertEqual(events[-2]["event"], "send_photo")
         self.assertEqual(events[-1]["event"], "delete")
 
